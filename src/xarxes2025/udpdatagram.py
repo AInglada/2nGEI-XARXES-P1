@@ -27,17 +27,18 @@ class UDPDatagram:
 
         # Bytes 4-7 are for the timestamp, in our case, the time() as an int. Its your task to
         # fill this in.
-        header[4] = 
-        header[5] = 
-        header[6] = 
-        header[7] = 
+        ts = int(time())
+        header[4] = (ts >> 24) & 255
+        header[5] = (ts >> 16) & 255
+        header[6] = (ts >> 8) & 255
+        header[7] = (ts >> 0) & 255
 
         # Bytes 8-11 are for the SSRC, in our case, 0. Its your task to
         # fill this in.
-        header[8] = 
-        header[9] = 
-        header[10] = 
-        header[11] = 
+        header[8] = 0
+        header[9] = 0
+        header[10] = 0
+        header[11] = 0
         
         self.header = header
         
