@@ -6,9 +6,7 @@ import io
 from tkinter import Tk, Label, Button, W, E, N, S, messagebox
 from loguru import logger
 from PIL import Image, ImageTk
-
 from xarxes2025.udpdatagram import UDPDatagram
-
 
 class Client(object):
     def __init__(self, server_port, filename):
@@ -90,6 +88,8 @@ class Client(object):
         Close the window.
         """
         self.is_receiving = False
+        if self.rtp_thread and self.rtp_thread.is_alive():
+            self.rtp_thread.join()
         if self.rtp_socket:
             self.rtp_socket.close()
         if self.rtsp_socket:
@@ -102,32 +102,62 @@ class Client(object):
         """
         Handle the Setup button click event.
         """
+        if self.state != 'INIT':
+            messagebox.showerror("Error", "Can't SETUP now, please try to Teardown first")
+            return
         logger.debug("Setup button clicked")
         self.text["text"] = "Setup button clicked"
         self.setup_movie()
 
     def ui_play_event(self):
-        if self.state != 'READY':
-            return
         logger.debug("Play button clicked")
         self.text["text"] = "Sending PLAY..."
-        self.play_movie()
+        if self.state != 'READY' or not self.rtsp_socket:
+            messagebox.showerror("Error", "Not connected or prepared for PLAY")
+            return
+        try:
+            self.play_movie()
+            self.state = 'PLAYING'
+        except Exception as e:
+            messagebox.showerror("Error", f"Playing error: {str(e)}")
+            self.state = 'READY'
 
     def ui_pause_event(self):
-        if self.state != 'PLAYING':
-            return
         logger.debug("Pause button clicked")
         self.text["text"] = "Sending PAUSE..."
-        self.pause_movie()
+        if self.state != 'PLAYING' or not self.rtsp_socket:
+            messagebox.showerror("Error", "Not connected or prepared for PAUSE")
+            return
+        try:
+            self.pause_movie()
+            self.state = 'READY'
+        except Exception as e:
+            messagebox.showerror("Error", f"Pause error: {str(e)}")
 
     def ui_teardown_event(self):
         logger.debug("Teardown button clicked")
         self.text["text"] = "Sending TEARDOWN..."
-        self.teardown_movie()
+        if self.state == 'INIT':
+            messagebox.showerror("Error", f"Client not initialized")
+            return
+
+        try:
+            self.teardown_movie()
+            self.state = 'INIT'
+        except Exception as e:
+            messagebox.showerror("Error", f"Closing error: {str(e)}")
 
     def setup_movie(self):
-        self.rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.rtsp_socket.connect((self.server_ip, self.server_port))
+        try:
+            self.rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.rtsp_socket.settimeout(5)  # 5 segons de timeout
+            self.rtsp_socket.connect((self.server_ip, self.server_port))
+        except socket.timeout:
+            messagebox.showerror("Error", "Timeout connecting to server")
+            return
+        except Exception as e:
+            messagebox.showerror("Error", f"Connection error: {str(e)}")
+            return
         self.rtsp_seq += 1
 
         self.rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -159,9 +189,14 @@ class Client(object):
         logger.debug(f"Sent RTSP PLAY:\n{req}")
 
         resp = self.rtsp_socket.recv(1024).decode()
+        if "200 OK" not in resp:
+            messagebox.showerror("Error", f"Server error: {resp.splitlines()[0]}")
+            self.state = 'READY'
+            return
         logger.debug(f"Received RTSP PLAY response:\n{resp}")
         self.state = 'PLAYING'
         self.is_receiving = True
+        self.text["text"] = "Playing"
         self.rtp_thread = threading.Thread(target=self.recv_rtp, daemon=True)
         self.rtp_thread.start()
 
@@ -175,6 +210,10 @@ class Client(object):
         logger.debug(f"Sent RTSP PAUSE:\n{req}")
 
         resp = self.rtsp_socket.recv(1024).decode()
+        if "200 OK" not in resp:
+            messagebox.showerror("Error", f"Server error: {resp.splitlines()[0]}")
+            self.state = 'READY'
+            return
         logger.debug(f"Received RTSP PAUSE response:\n{resp}")
         self.state = 'READY'
         self.is_receiving = False
@@ -183,32 +222,39 @@ class Client(object):
     def teardown_movie(self):
         # RTSP TEARDOWN
         self.rtsp_seq += 1
-        req = f"TEARDOWN {self.video_file} RTSP/1.0\r\n"
-        req += f"CSeq: {self.rtsp_seq}\r\n"
-        req += f"Session: {self.session_id}\r\n\r\n"
+        req = f"TEARDOWN {self.video_file} RTSP/1.0\r\n" \
+              f"CSeq: {self.rtsp_seq}\r\n" \
+              f"Session: {self.session_id}\r\n\r\n"
         self.rtsp_socket.send(req.encode())
         logger.debug(f"Sent RTSP TEARDOWN:\n{req}")
 
         resp = self.rtsp_socket.recv(1024).decode()
         logger.debug(f"Received RTSP TEARDOWN response:\n{resp}")
+
         self.state = 'INIT'
         self.is_receiving = False
+        self.session_id = None
+        self.rtsp_seq = 0
+
         if self.rtp_socket:
             self.rtp_socket.close()
+            self.rtp_socket = None
         if self.rtsp_socket:
             self.rtsp_socket.close()
+            self.rtsp_socket = None
+
         self.text["text"] = "Teardown complete"
 
     def recv_rtp(self):
         while self.is_receiving:
             try:
                 packet_bytes, _ = self.rtp_socket.recvfrom(65536)
+                packet = UDPDatagram(0, b"")
+                packet.decode(packet_bytes)
+                payload = packet.get_payload()
+                self.updateMovie(payload)
             except Exception:
                 break
-            packet = UDPDatagram(0, b"")
-            packet.decode(packet_bytes)
-            payload = packet.get_payload()
-            self.updateMovie(payload)
         logger.info("Stopped RTP reception")
 
     def updateMovie(self, data):
