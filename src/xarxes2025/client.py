@@ -222,9 +222,9 @@ class Client(object):
     def teardown_movie(self):
         # RTSP TEARDOWN
         self.rtsp_seq += 1
-        req = f"TEARDOWN {self.video_file} RTSP/1.0\r\n" \
-              f"CSeq: {self.rtsp_seq}\r\n" \
-              f"Session: {self.session_id}\r\n\r\n"
+        req = f"TEARDOWN {self.video_file} RTSP/1.0\r\n"
+        req += f"CSeq: {self.rtsp_seq}\r\n"
+        req += f"Session: {self.session_id}\r\n\r\n"
         self.rtsp_socket.send(req.encode())
         logger.debug(f"Sent RTSP TEARDOWN:\n{req}")
 

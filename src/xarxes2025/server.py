@@ -13,7 +13,7 @@ class Server(object):
         self.video = None
         self.port = port
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(("0.0.0.0", self.port))
+        self.server_socket.bind(("127.0.0.1", self.port))
         self.server_socket.listen(5)  # Allow 5 concurent client
         logger.info(f"Server RTSP created listening port {self.port}")
         self.start()
