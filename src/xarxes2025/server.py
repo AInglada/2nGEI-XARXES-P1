@@ -14,7 +14,7 @@ class Server(object):
         self.port = port
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind(("127.0.0.1", self.port))
-        self.server_socket.listen(5)  # Allow 5 concurent client
+        self.server_socket.listen(5)  # Allow 5 concurrent client
         logger.info(f"Server RTSP created listening port {self.port}")
         self.start()
 
@@ -134,11 +134,14 @@ class Server(object):
                     client_socket.send(response.encode())
 
                 elif command == "TEARDOWN":
+                    state = "INIT"
                     play_event.clear()
                     if play_thread and play_thread.is_alive():
                         play_thread.join()
                     response = f"RTSP/1.0 200 OK\r\nCSeq: {cseq}\r\nSession: {session_id}\r\n\r\n"
                     client_socket.send(response.encode())
+
+                elif command == "QUIT":
                     break
 
                 else:

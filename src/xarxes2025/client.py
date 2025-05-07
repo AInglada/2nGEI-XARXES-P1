@@ -29,6 +29,16 @@ class Client(object):
         self.movie = None
         self.text = None
         self.create_ui()
+        try:
+            self.rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.rtsp_socket.settimeout(5)  # 5 timeout sec
+            self.rtsp_socket.connect((self.server_ip, self.server_port))
+        except socket.timeout:
+            messagebox.showerror("Error", "Timeout connecting to server")
+            return
+        except Exception as e:
+            messagebox.showerror("Error", f"Connection error: {str(e)}")
+            return
 
     def create_ui(self):
         """
@@ -112,7 +122,7 @@ class Client(object):
     def ui_play_event(self):
         logger.debug("Play button clicked")
         self.text["text"] = "Sending PLAY..."
-        if self.state != 'READY' or not self.rtsp_socket:
+        if self.state != 'READY':
             messagebox.showerror("Error", "Not connected or prepared for PLAY")
             return
         try:
@@ -148,19 +158,9 @@ class Client(object):
             messagebox.showerror("Error", f"Closing error: {str(e)}")
 
     def setup_movie(self):
-        try:
-            self.rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.rtsp_socket.settimeout(5)  # 5 segons de timeout
-            self.rtsp_socket.connect((self.server_ip, self.server_port))
-        except socket.timeout:
-            messagebox.showerror("Error", "Timeout connecting to server")
-            return
-        except Exception as e:
-            messagebox.showerror("Error", f"Connection error: {str(e)}")
-            return
         self.rtsp_seq += 1
-
         self.rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.rtp_socket.settimeout(5)
         self.rtp_socket.bind(("", 0))  # Let OS assign free port
         self.rtp_port = self.rtp_socket.getsockname()[1]  # Get actual port
         logger.info(f"RTP socket bound to port {self.rtp_port}")
@@ -176,6 +176,8 @@ class Client(object):
         for line in resp.split("\r\n"):
             if line.startswith("Session:"):
                 self.session_id = line.split(":")[1].strip()
+                logger.debug(f"Session ID: {self.session_id}")
+        logger.debug("SETUP Complete")
         self.state = 'READY'
         self.text["text"] = "Setup complete"
 
@@ -191,7 +193,6 @@ class Client(object):
         resp = self.rtsp_socket.recv(1024).decode()
         if "200 OK" not in resp:
             messagebox.showerror("Error", f"Server error: {resp.splitlines()[0]}")
-            self.state = 'READY'
             return
         logger.debug(f"Received RTSP PLAY response:\n{resp}")
         self.state = 'PLAYING'
@@ -232,6 +233,7 @@ class Client(object):
         logger.debug(f"Received RTSP TEARDOWN response:\n{resp}")
 
         self.state = 'INIT'
+        self.rtsp_seq = 0
         self.is_receiving = False
         self.session_id = None
         self.rtsp_seq = 0
@@ -239,9 +241,6 @@ class Client(object):
         if self.rtp_socket:
             self.rtp_socket.close()
             self.rtp_socket = None
-        if self.rtsp_socket:
-            self.rtsp_socket.close()
-            self.rtsp_socket = None
 
         self.text["text"] = "Teardown complete"
 
